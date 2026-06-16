@@ -59,7 +59,7 @@ jobs:
           releaseName: Ferro ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           releaseCommitish: ${{ github.sha }}
           releaseBody: See the attached signed installer and updater artifacts.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
