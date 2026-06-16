@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm version is read automatically from package.json "packageManager".
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Format check
+        run: pnpm run format:check
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit -p tsconfig.json
+
+      - name: Unit + smoke + integration tests
+        run: pnpm test
+
+  rust:
+    name: Rust checks (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            os: windows-latest
+          # MVP: Windows-only. Uncomment below to restore cross-platform CI.
+          # - label: linux-x86_64
+          #   os: ubuntu-22.04
+          # - label: macos-x86_64
+          #   os: macos-13
+          # - label: macos-aarch64
+          #   os: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # MVP: Linux/macOS steps commented out — Windows-only for now.
+      # - name: Install Linux Tauri dependencies
+      #   if: runner.os == 'Linux'
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y \
+      #       libwebkit2gtk-4.1-dev \
+      #       libayatana-appindicator3-dev \
+      #       librsvg2-dev \
+      #       patchelf \
+      #       aria2
+
+      # Engine integration tests spawn a real aria2c from src-tauri/resources.
+      # cargo test does not enforce a version, so a package-manager aria2 is fine.
+      # - name: Provision aria2c (Linux)
+      #   if: runner.os == 'Linux'
+      #   run: |
+      #     mkdir -p src-tauri/resources
+      #     cp "$(command -v aria2c)" src-tauri/resources/aria2c
+
+      # - name: Provision aria2c (macOS)
+      #   if: runner.os == 'macOS'
+      #   run: |
+      #     brew install aria2
+      #     mkdir -p src-tauri/resources
+      #     cp "$(command -v aria2c)" src-tauri/resources/aria2c
+
+      - name: Setup Node (for aria2c provisioning on Windows)
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Provision aria2c (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/ensure-aria2c.mjs
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Rustfmt
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        working-directory: src-tauri
+        run: cargo test
+
+  desktop-build:
+    name: Build desktop app (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            os: windows-latest
+          # MVP: Windows-only. Uncomment below to restore cross-platform builds.
+          # - label: linux-x86_64
+          #   os: ubuntu-22.04
+          # - label: macos-x86_64
+          #   os: macos-13
+          # - label: macos-aarch64
+          #   os: macos-14
+    env:
+      FERRO_CI_USE_SYSTEM_ARIA2: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # MVP: Linux/macOS steps commented out — Windows-only for now.
+      # - name: Install Linux Tauri dependencies
+      #   if: runner.os == 'Linux'
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y \
+      #       libwebkit2gtk-4.1-dev \
+      #       libayatana-appindicator3-dev \
+      #       librsvg2-dev \
+      #       patchelf \
+      #       aria2
+
+      # - name: Install macOS aria2
+      #   if: runner.os == 'macOS'
+      #   run: brew install aria2
+
+      # pnpm version is read automatically from package.json "packageManager".
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop app
+        run: pnpm tauri build --no-bundle --debug

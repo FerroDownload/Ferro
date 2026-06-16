@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ferro",
+  "version": "0.1.0",
+  "identifier": "lol.ferro.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm setup:aria2 && pnpm dev",
+    "devUrl": "http://localhost:1450",
+    "beforeBuildCommand": "pnpm setup:aria2 && pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ferro",
+        "width": 1120,
+        "height": 720,
+        "minWidth": 860,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self' http://localhost:1450; connect-src ipc: http://ipc.localhost http://localhost:1450 ws://localhost:1450; img-src 'self' asset: http://asset.localhost data: blob: http://localhost:1450; style-src 'self' 'unsafe-inline' http://localhost:1450; font-src 'self' data: http://localhost:1450; script-src 'self' 'unsafe-eval' http://localhost:1450; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/aria2c*": ""
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["magnet"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM4REI0MkY2QTVEMTAyRUUKUldUdUF0R2w5a0xiT0hlaEtrZlZLMHJMS1BUcW1YQXZGS291WFpQb2JHWmJjcG5qT2JzaUZwTjkK",
+      "endpoints": [
+        "https://github.com/FerroDownload/Ferro/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

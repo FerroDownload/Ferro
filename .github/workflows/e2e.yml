@@ -1,0 +1,89 @@
+name: E2E
+
+# WebDriver e2e drives a real Tauri build through tauri-driver.
+# Tauri v2 desktop WebDriver supports Windows and Linux.
+# macOS desktop WebDriver is not available in Tauri v2 because WKWebView has no
+# driver tool, so macOS desktop coverage lives in CI build smoke + Rust tests.
+# This suite is heavier and slower than unit/integration tests, so it runs on
+# PRs to main and on demand rather than gating every push or release builds.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webdriver:
+    name: WebDriver e2e (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      FERRO_CI_USE_SYSTEM_ARIA2: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            os: windows-latest
+          # MVP: Windows-only. Uncomment below to restore Linux E2E.
+          # - label: linux-x86_64
+          #   os: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # MVP: Linux steps commented out — Windows-only for now.
+      # - name: Install Linux Tauri/WebDriver dependencies
+      #   if: runner.os == 'Linux'
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y \
+      #       libwebkit2gtk-4.1-dev \
+      #       libayatana-appindicator3-dev \
+      #       librsvg2-dev \
+      #       patchelf \
+      #       webkit2gtk-driver \
+      #       xvfb \
+      #       aria2
+
+      # pnpm version is read automatically from package.json "packageManager".
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+
+      # The e2e harness self-builds the app (pnpm tauri build --no-bundle --debug),
+      # provisions aria2c via beforeBuildCommand, and connects through the native
+      # platform WebDriver under tauri-driver.
+      - name: Run WebDriver e2e (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm run test:e2e
+
+      # MVP: Linux E2E step commented out.
+      # - name: Run WebDriver e2e (Linux)
+      #   if: runner.os == 'Linux'
+      #   run: xvfb-run -a pnpm run test:e2e

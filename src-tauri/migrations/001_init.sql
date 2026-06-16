@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  aria2_gid TEXT,
+  source_urls TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  destination_path TEXT NOT NULL,
+  status TEXT NOT NULL,
+  progress_percent REAL NOT NULL DEFAULT 0,
+  downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+  total_bytes INTEGER NOT NULL DEFAULT 0,
+  download_speed_bps INTEGER NOT NULL DEFAULT 0,
+  upload_speed_bps INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  externally_added INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  is_torrent INTEGER NOT NULL DEFAULT 0,
+  torrent_info_hash TEXT,
+  selected_files TEXT
+);
