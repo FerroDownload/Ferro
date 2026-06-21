@@ -1,4 +1,5 @@
 import fs from "fs";
+import http from "node:http";
 import os from "os";
 import path from "path";
 import { Buffer } from "node:buffer";
@@ -56,6 +57,101 @@ let driver;
 let tauriDriver;
 let dbPath;
 let shutdownStarted = false;
+let localServer;
+let localServerUrl;
+let downloadDir;
+const localFixtureName = "ferro-local-fixture-desktop.bin";
+const localFixtureBytes = Buffer.from(
+  "ferro local download desktop fixture\n",
+  "utf8",
+);
+
+function startLocalFileServer() {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((request, response) => {
+      if (request.url !== `/${localFixtureName}`) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+
+      response.writeHead(200, {
+        "Content-Length": localFixtureBytes.length,
+        "Content-Type": "application/octet-stream",
+      });
+      response.end(localFixtureBytes);
+    });
+
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("Unable to resolve local fixture server address"));
+        return;
+      }
+
+      resolve({
+        server,
+        url: `http://127.0.0.1:${address.port}/${localFixtureName}`,
+      });
+    });
+  });
+}
+
+async function waitForEngineRunning() {
+  await driver.wait(async () => {
+    const bodyText = await driver.executeScript(
+      "return document.body.innerText",
+    );
+    return /\bEngine\s+running\b/.test(bodyText);
+  }, 30000);
+}
+
+async function waitForDownloadComplete(fileName, totalBytes) {
+  const filePath = path.join(downloadDir, fileName);
+  await driver.wait(() => {
+    if (!fs.existsSync(filePath)) {
+      return false;
+    }
+
+    return fs.statSync(filePath).size === totalBytes;
+  }, 30000);
+
+  await driver.findElement(By.linkText("History")).click();
+  await driver.wait(async () => {
+    const headings = await driver.findElements(By.css("h1"));
+    if (headings.length === 0) {
+      return false;
+    }
+
+    return (await headings[0].getText()) === "History";
+  }, 30000);
+
+  const row = await driver.wait(
+    until.elementLocated(
+      By.xpath(
+        `//*[@role='row' and contains(normalize-space(), '${fileName}')]`,
+      ),
+    ),
+    30000,
+  );
+
+  await driver.wait(async () => {
+    const text = await row.getText();
+    if (/error/i.test(text)) {
+      throw new Error(`Download entered error state: ${text}`);
+    }
+
+    return (
+      /\bComplete\b/i.test(text) &&
+      text.includes(
+        `${totalBytes.toLocaleString()} / ${totalBytes.toLocaleString()} B`,
+      )
+    );
+  }, 30000);
+
+  return row;
+}
 
 function resolveApplicationPath() {
   const debugPath = path.resolve(
@@ -551,6 +647,13 @@ before(async function () {
   }
 
   dbPath = createTempDbPath();
+  const tempRoot = path.dirname(dbPath);
+  downloadDir = path.join(tempRoot, "downloads");
+  fs.mkdirSync(downloadDir, { recursive: true });
+
+  const serverInfo = await startLocalFileServer();
+  localServer = serverInfo.server;
+  localServerUrl = serverInfo.url;
 
   const tauriDriverPath = resolveTauriDriverPath();
   const nativeDriverArgs = await resolveNativeDriverArgs();
@@ -590,6 +693,12 @@ before(async function () {
 
 after(async function () {
   await closeTauriDriver();
+  if (localServer) {
+    await new Promise((resolve) => localServer.close(resolve));
+  }
+  if (downloadDir && fs.existsSync(downloadDir)) {
+    fs.rmSync(downloadDir, { force: true, recursive: true });
+  }
 });
 
 describe("Ferro desktop app", function () {
@@ -822,5 +931,49 @@ describe("Ferro desktop app", function () {
 
     await closeModalIfPresent();
     await waitForDialogClosed();
+  });
+
+  it("downloads a local HTTP file to completion", async () => {
+    await driver.findElement(By.linkText("Downloads")).click();
+    await driver.wait(
+      async () =>
+        (await driver.findElement(By.css("h1")).getText()) === "Downloads",
+      10000,
+    );
+
+    await waitForEngineRunning();
+
+    await driver
+      .findElement(By.xpath("//button[normalize-space()='New download']"))
+      .click();
+
+    await driver.wait(
+      until.elementLocated(By.xpath("//h2[normalize-space()='Add download']")),
+      10000,
+    );
+
+    const urlInput = await driver.findElement(By.css("#download-url"));
+    await typeIntoInput(urlInput, localServerUrl);
+
+    const destInput = await driver.findElement(By.css("#download-destination"));
+    await typeIntoInput(destInput, downloadDir);
+
+    await driver
+      .findElement(
+        By.xpath(
+          "//*[@role='dialog']//button[normalize-space()='Add download']",
+        ),
+      )
+      .click();
+
+    await waitForDialogClosed();
+
+    await waitForDownloadComplete(localFixtureName, localFixtureBytes.length);
+
+    expect(
+      fs
+        .readFileSync(path.join(downloadDir, localFixtureName))
+        .equals(localFixtureBytes),
+    ).to.equal(true);
   });
 });
