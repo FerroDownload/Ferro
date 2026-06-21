@@ -23,8 +23,6 @@ jobs:
     name: WebDriver e2e (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    env:
-      FERRO_CI_USE_SYSTEM_ARIA2: "1"
     strategy:
       fail-fast: false
       matrix:
