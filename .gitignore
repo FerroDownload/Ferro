@@ -43,6 +43,7 @@ test-results/
 # Bundled aria2c sidecar fetched by scripts/ensure-aria2c (per-platform binary)
 /src-tauri/resources/aria2c
 /src-tauri/resources/aria2c.exe
+/src-tauri/resources/aria2c.version
 
 # Env
 .env*

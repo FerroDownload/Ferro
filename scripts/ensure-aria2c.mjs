@@ -10,9 +10,73 @@ const version = "1.37.0";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const resourcesDir = path.join(repoRoot, "src-tauri", "resources");
-const binaryName = process.platform === "win32" ? "aria2c.exe" : "aria2c";
-const binaryPath = path.join(resourcesDir, binaryName);
 const cacheDir = path.join(repoRoot, ".cache", "aria2");
+
+export function getTarget(env = process.env) {
+  const hostPlatform =
+    process.platform === "win32"
+      ? "windows"
+      : process.platform === "darwin"
+        ? "macos"
+        : "linux";
+  const hostArch =
+    process.arch === "x64"
+      ? "x64"
+      : process.arch === "arm64"
+        ? "arm64"
+        : process.arch;
+
+  let targetPlatform = hostPlatform;
+  let targetArch = hostArch;
+
+  const targetTriple = env.TAURI_ENV_TARGET_TRIPLE;
+  if (targetTriple) {
+    const parts = targetTriple.toLowerCase().split("-");
+    if (targetTriple.includes("windows")) {
+      targetPlatform = "windows";
+    } else if (targetTriple.includes("apple-darwin")) {
+      targetPlatform = "macos";
+    } else if (targetTriple.includes("linux")) {
+      targetPlatform = "linux";
+    }
+    if (parts[0] === "x86_64") {
+      targetArch = "x64";
+    } else if (parts[0] === "aarch64" || parts[0] === "arm64") {
+      targetArch = "arm64";
+    }
+  } else {
+    const tauriPlatform = env.TAURI_ENV_PLATFORM;
+    const tauriArch = env.TAURI_ENV_ARCH;
+
+    if (tauriPlatform) {
+      if (tauriPlatform === "windows" || tauriPlatform === "win32") {
+        targetPlatform = "windows";
+      } else if (tauriPlatform === "darwin" || tauriPlatform === "macos") {
+        targetPlatform = "macos";
+      } else if (tauriPlatform === "linux") {
+        targetPlatform = "linux";
+      }
+    }
+
+    if (tauriArch) {
+      if (tauriArch === "x86_64" || tauriArch === "x64") {
+        targetArch = "x64";
+      } else if (tauriArch === "aarch64" || tauriArch === "arm64") {
+        targetArch = "arm64";
+      }
+    }
+  }
+
+  const isCrossCompiling =
+    targetPlatform !== hostPlatform || targetArch !== hostArch;
+  return { targetPlatform, targetArch, isCrossCompiling };
+}
+
+const { targetPlatform, targetArch, isCrossCompiling } = getTarget();
+const binaryName = targetPlatform === "windows" ? "aria2c.exe" : "aria2c";
+const binaryPath = path.join(resourcesDir, binaryName);
+const versionFilePath = binaryPath + ".version";
+const expectedVersionContent = `${version}-${targetPlatform}-${targetArch}`;
 
 function hasExpectedAria2(binary) {
   if (!fs.existsSync(binary)) {
@@ -29,18 +93,6 @@ function hasExpectedAria2(binary) {
       `aria2 version ${version}`,
     )
   );
-}
-
-function resolveExecutableFromPath(executableName) {
-  const pathValue = process.env.PATH || "";
-  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(directory, executableName);
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
 }
 
 async function downloadFile(url, destPath) {
@@ -61,128 +113,115 @@ function verifyHash(filePath, expectedHash) {
   return actualHash === expectedHash.toLowerCase();
 }
 
-function extractZip(archivePath, extractDir) {
-  fs.mkdirSync(extractDir, { recursive: true });
-
-  // Try tar first
-  const tarResult = spawnSync("tar", ["-xf", archivePath, "-C", extractDir]);
-  if (tarResult.status === 0) {
-    return;
-  }
-
-  // Fallback to powershell Expand-Archive on Windows
-  if (process.platform === "win32") {
-    const psResult = spawnSync("powershell", [
-      "-NoProfile",
-      "-Command",
-      `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractDir}' -Force`,
-    ]);
-    if (psResult.status === 0) {
-      return;
-    }
-  }
-
-  throw new Error("Failed to extract zip archive using tar or PowerShell.");
-}
-
 async function main() {
   try {
-    if (hasExpectedAria2(binaryPath)) {
-      console.log(`aria2c ${version} already available at ${binaryPath}`);
-      return;
-    }
-
-    if (
-      process.env.FERRO_CI_USE_SYSTEM_ARIA2 === "1" &&
-      process.platform !== "win32"
-    ) {
-      const systemAria2 = resolveExecutableFromPath("aria2c");
-      if (!systemAria2) {
-        console.error(
-          "FERRO_CI_USE_SYSTEM_ARIA2 is set, but aria2c was not found in PATH.",
-        );
-        process.exit(1);
+    // Check if we already have the expected binary
+    if (fs.existsSync(binaryPath) && fs.existsSync(versionFilePath)) {
+      const currentVersionContent = fs
+        .readFileSync(versionFilePath, "utf8")
+        .trim();
+      if (currentVersionContent === expectedVersionContent) {
+        if (isCrossCompiling) {
+          console.log(
+            `aria2c ${version} for target ${targetPlatform}-${targetArch} already exists (cross-compiled target, execution verification skipped).`,
+          );
+          return;
+        } else if (hasExpectedAria2(binaryPath)) {
+          console.log(
+            `aria2c ${version} already available and verified at ${binaryPath}`,
+          );
+          return;
+        }
       }
-
-      fs.mkdirSync(resourcesDir, { recursive: true });
-      fs.copyFileSync(systemAria2, binaryPath);
-      fs.chmodSync(binaryPath, 0o755);
-      console.log(`Copied CI aria2c from ${systemAria2} to ${binaryPath}`);
-      return;
     }
 
-    if (process.platform !== "win32") {
-      console.error(
-        [
-          `Bundled aria2c ${version} is missing at ${binaryPath}.`,
-          "Ferro does not fall back to a system aria2c from PATH.",
-          "Provision a platform-specific aria2c binary in src-tauri/resources before building this target.",
-        ].join("\n"),
-      );
-      process.exit(1);
-    }
+    console.log(
+      `Preparing to fetch aria2c for target: ${targetPlatform}-${targetArch}`,
+    );
 
-    // Windows setup flow using pure Node.js
-    const archiveName = `aria2-${version}-win-64bit-build1.zip`;
-    const archivePath = path.join(cacheDir, archiveName);
-    const extractDir = path.join(cacheDir, `extract-${version}`);
-    const downloadUrl = `https://github.com/aria2/aria2/releases/download/release-${version}/${archiveName}`;
-    const expectedSha256 =
-      "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288";
+    const ext = targetPlatform === "windows" ? ".exe" : "";
+    const filename = `aria2c-${version}-${targetPlatform}-${targetArch}${ext}`;
+    const downloadUrl = `https://github.com/FerroDownload/aria2-static-builds/releases/download/v${version}/${filename}`;
 
     fs.mkdirSync(resourcesDir, { recursive: true });
     fs.mkdirSync(cacheDir, { recursive: true });
 
-    if (!fs.existsSync(archivePath)) {
-      await downloadFile(downloadUrl, archivePath);
-    }
+    const archivePath = path.join(cacheDir, filename);
+    const shaPath = archivePath + ".sha256";
 
-    if (!verifyHash(archivePath, expectedSha256)) {
+    // Download both files
+    await downloadFile(downloadUrl, archivePath);
+    await downloadFile(downloadUrl + ".sha256", shaPath);
+
+    // Read and verify hash
+    const shaContent = fs.readFileSync(shaPath, "utf8").trim();
+    const expectedHash = shaContent.split(/\s+/)[0];
+
+    if (!verifyHash(archivePath, expectedHash)) {
       throw new Error(
-        `Downloaded archive hash mismatch. Expected ${expectedSha256}`,
+        `Downloaded binary hash mismatch. Expected ${expectedHash}`,
       );
     }
 
-    if (fs.existsSync(extractDir)) {
-      fs.rmSync(extractDir, { recursive: true, force: true });
-    }
-
-    extractZip(archivePath, extractDir);
-
-    // Recursively find aria2c.exe in the extracted folder
-    const findBinary = (dir) => {
-      const files = fs.readdirSync(dir);
-      for (const file of files) {
-        const fullPath = path.join(dir, file);
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          const found = findBinary(fullPath);
-          if (found) return found;
-        } else if (file === "aria2c.exe") {
-          return fullPath;
-        }
+    // Clean up older version files or files with different extensions if we switched platforms
+    if (targetPlatform === "windows") {
+      const macLinuxBinary = path.join(resourcesDir, "aria2c");
+      if (fs.existsSync(macLinuxBinary)) {
+        fs.rmSync(macLinuxBinary, { force: true });
       }
-      return null;
-    };
-
-    const extractedBinary = findBinary(extractDir);
-    if (!extractedBinary) {
-      throw new Error(`aria2c.exe was not found in extracted archive.`);
+      const macLinuxVersion = macLinuxBinary + ".version";
+      if (fs.existsSync(macLinuxVersion)) {
+        fs.rmSync(macLinuxVersion, { force: true });
+      }
+    } else {
+      const winBinary = path.join(resourcesDir, "aria2c.exe");
+      if (fs.existsSync(winBinary)) {
+        fs.rmSync(winBinary, { force: true });
+      }
+      const winVersion = winBinary + ".version";
+      if (fs.existsSync(winVersion)) {
+        fs.rmSync(winVersion, { force: true });
+      }
     }
 
-    fs.copyFileSync(extractedBinary, binaryPath);
+    // Copy to resources
+    fs.copyFileSync(archivePath, binaryPath);
 
-    if (!hasExpectedAria2(binaryPath)) {
-      throw new Error(
-        `Fetched aria2c did not run or did not report version ${version}.`,
-      );
+    // Make executable if non-Windows
+    if (targetPlatform !== "windows") {
+      fs.chmodSync(binaryPath, 0o755);
     }
 
-    console.log(`aria2c ${version} available at ${binaryPath}`);
+    // Write version file
+    fs.writeFileSync(versionFilePath, expectedVersionContent, "utf8");
+
+    // Clean up cache files
+    fs.rmSync(archivePath, { force: true });
+    fs.rmSync(shaPath, { force: true });
+
+    // Validate execution if not cross-compiling
+    if (!isCrossCompiling) {
+      if (!hasExpectedAria2(binaryPath)) {
+        throw new Error(
+          `Downloaded aria2c did not run or did not report version ${version}.`,
+        );
+      }
+    }
+
+    console.log(
+      `Successfully provisioned aria2c ${version} for target ${targetPlatform}-${targetArch} at ${binaryPath}`,
+    );
   } catch (error) {
     console.error("Error ensuring aria2c binary:", error.message);
     process.exit(1);
   }
 }
 
-main();
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith("ensure-aria2c.mjs") ||
+    process.argv[1] === fileURLToPath(import.meta.url));
+
+if (isMain) {
+  main();
+}
