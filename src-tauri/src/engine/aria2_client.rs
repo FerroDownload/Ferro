@@ -117,6 +117,7 @@ impl Aria2Client {
         let http = reqwest::Client::builder()
             .timeout(RPC_REQUEST_TIMEOUT)
             .connect_timeout(RPC_CONNECT_TIMEOUT)
+            .no_proxy()
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
