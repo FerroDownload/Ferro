@@ -54,7 +54,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
 
       # pnpm version is read automatically from package.json "packageManager".
       - name: Setup pnpm
@@ -70,6 +70,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install zlib expat sqlite c-ares
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile

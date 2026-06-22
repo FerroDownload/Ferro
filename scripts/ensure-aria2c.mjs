@@ -83,16 +83,48 @@ function hasExpectedAria2(binary) {
     return false;
   }
 
-  const result = spawnSync(binary, ["--version"], {
+  let result = spawnSync(binary, ["--version"], {
     encoding: "utf8",
   });
 
-  return (
+  let ok =
     result.status === 0 &&
     `${result.stdout || ""}${result.stderr || ""}`.includes(
       `aria2 version ${version}`,
-    )
-  );
+    );
+
+  if (!ok && process.platform === "darwin") {
+    console.log("aria2c verification failed, attempting ad-hoc codesign...");
+    const signResult = spawnSync("codesign", ["-s", "-", binary], {
+      encoding: "utf8",
+    });
+    if (signResult.status === 0) {
+      result = spawnSync(binary, ["--version"], {
+        encoding: "utf8",
+      });
+      ok =
+        result.status === 0 &&
+        `${result.stdout || ""}${result.stderr || ""}`.includes(
+          `aria2 version ${version}`,
+        );
+    } else {
+      console.error(
+        "Ad-hoc codesign failed:",
+        signResult.stderr || signResult.stdout,
+      );
+    }
+  }
+
+  if (!ok) {
+    console.error("aria2c execution check failed.");
+    console.error("Status:", result.status);
+    console.error("Signal:", result.signal);
+    console.error("Error:", result.error);
+    console.error("Stdout:", result.stdout);
+    console.error("Stderr:", result.stderr);
+  }
+
+  return ok;
 }
 
 async function downloadFile(url, destPath) {

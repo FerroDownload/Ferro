@@ -368,7 +368,9 @@ impl<L: EngineLauncher> EngineManager<L> {
                 let final_error = if stdout_content.is_empty() {
                     "aria2.getVersion health check timed out".to_string()
                 } else {
-                    format!("aria2.getVersion health check timed out (aria2c output: {stdout_content})")
+                    format!(
+                        "aria2.getVersion health check timed out (aria2c output: {stdout_content})"
+                    )
                 };
                 return Err(EngineManagerError::Spawn(final_error));
             }
@@ -739,10 +741,8 @@ async fn get_stdout_content(stdout: &mut Option<tokio::process::ChildStdout>) ->
     if let Some(mut stdout) = stdout.take() {
         let mut buf = Vec::new();
         use tokio::io::AsyncReadExt;
-        let _ = tokio::time::timeout(
-            Duration::from_millis(200),
-            stdout.read_to_end(&mut buf)
-        ).await;
+        let _ =
+            tokio::time::timeout(Duration::from_millis(200), stdout.read_to_end(&mut buf)).await;
         String::from_utf8_lossy(&buf).trim().to_string()
     } else {
         "".to_string()
