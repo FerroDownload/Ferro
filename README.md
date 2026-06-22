@@ -37,16 +37,16 @@ Ferro is a fast, modern desktop download manager built with **Tauri v2** and pow
 
 ## Platform support
 
-| Platform | Architecture     | v0.1.0              |
-| -------- | ---------------- | ------------------- |
-| Windows  | x86_64           | ✅ Released         |
-| macOS    | x86_64 / aarch64 | ⏳ Work-in-Progress |
-| Linux    | x86_64           | ⏳ Work-in-Progress |
+| Platform | Architecture     | Status      |
+| -------- | ---------------- | ----------- |
+| Windows  | x86_64 / aarch64 | ✅ Released |
+| macOS    | x86_64 / aarch64 | ✅ Released |
+| Linux    | x86_64 / aarch64 | ✅ Released |
 
 ## Installation
 
-1. Download the latest Windows installer from the [**Releases**](https://github.com/FerroDownload/Ferro/releases/latest) page.
-2. Run the installer and launch **Ferro**.
+1. Download the latest installer for your platform (Windows `.msi`/`.exe`, macOS `.dmg`, or Linux `.deb`/`.AppImage`) from the [**Releases**](https://github.com/FerroDownload/Ferro/releases/latest) page.
+2. Install and launch **Ferro**.
 
 Ferro checks for updates on startup and can install signed updates in place — no manual re-download required.
 
@@ -75,10 +75,10 @@ Downloads, concurrency limits, connection limits, speed limits, BitTorrent optio
 
 ```bash
 pnpm install
-pnpm setup:aria2   # fetches the pinned aria2c 1.37.0 sidecar (Windows)
+pnpm setup:aria2   # fetches the pinned aria2c 1.37.0 sidecar for your platform
 ```
 
-`pnpm setup:aria2` downloads the official aria2 1.37.0 Windows release asset, verifies its pinned SHA-256, and places `aria2c.exe` in `src-tauri/resources/`. It also runs automatically before `tauri dev` and `tauri build`.
+`pnpm setup:aria2` downloads the official aria2 1.37.0 release asset matching your target platform and architecture, verifies its pinned SHA-256 hash, and places the binary in `src-tauri/resources/`. It also runs automatically before `tauri dev` and `tauri build`.
 
 ### Develop
 
@@ -117,14 +117,18 @@ cargo test
 
 ### End-to-end (E2E)
 
-End-to-end (Tauri WebDriver, Windows) — drives a real build through `tauri-driver` + Microsoft Edge WebView2:
+End-to-end testing (Tauri WebDriver) — drives a real application build using WebDriver. Note that Tauri's native WebDriver infra currently **supports Windows and Linux only** (as macOS's WKWebView does not ship with an out-of-the-box driver tool):
 
 ```bash
 cargo install tauri-driver --locked   # one-time
 pnpm run test:e2e
 ```
 
-The e2e harness builds the desktop binary, detects the installed Edge/WebView2 runtime version, downloads the exact matching `msedgedriver`, and connects through `tauri-driver --native-driver`. See the [Tauri WebDriver docs](https://v2.tauri.app/develop/tests/webdriver/).
+- **Windows**: The E2E harness detects the installed Edge/WebView2 runtime version, downloads the matching `msedgedriver`, and connects using `tauri-driver`.
+- **Linux**: The harness expects `WebKitWebDriver` in the system path (install the `webkit2gtk-driver` package on Debian/Ubuntu-based distributions).
+- **macOS**: Since WKWebView lacks a native driver tool, E2E tests are unsupported. Use the unit and smoke tests for macOS coverage.
+
+For more details, see the [Tauri WebDriver documentation](https://v2.tauri.app/develop/tests/webdriver/).
 
 ## Architecture
 
