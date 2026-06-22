@@ -21,12 +21,40 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   build:
-    name: Build windows-x86_64
+    name: Build ${{ matrix.label }}
     needs: checks
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - label: windows-aarch64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+          - label: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - label: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+          - label: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - label: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       # pnpm version is read automatically from package.json "packageManager".
       - name: Setup pnpm
@@ -41,7 +69,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -64,4 +92,4 @@ jobs:
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
           tauriScript: pnpm tauri
-          args: --target x86_64-pc-windows-msvc
+          args: --target ${{ matrix.target }}

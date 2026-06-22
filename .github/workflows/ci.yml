@@ -59,52 +59,30 @@ jobs:
         include:
           - label: windows-x86_64
             os: windows-latest
-          # MVP: Windows-only. Uncomment below to restore cross-platform CI.
-          # - label: linux-x86_64
-          #   os: ubuntu-22.04
-          # - label: macos-x86_64
-          #   os: macos-13
-          # - label: macos-aarch64
-          #   os: macos-14
+          - label: macos-x86_64
+            os: macos-15-intel
+          - label: macos-aarch64
+            os: macos-14
+          - label: linux-x86_64
+            os: ubuntu-latest
+          - label: linux-aarch64
+            os: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # MVP: Linux/macOS steps commented out — Windows-only for now.
-      # - name: Install Linux Tauri dependencies
-      #   if: runner.os == 'Linux'
-      #   run: |
-      #     sudo apt-get update
-      #     sudo apt-get install -y \
-      #       libwebkit2gtk-4.1-dev \
-      #       libayatana-appindicator3-dev \
-      #       librsvg2-dev \
-      #       patchelf \
-      #       aria2
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      # Engine integration tests spawn a real aria2c from src-tauri/resources.
-      # cargo test does not enforce a version, so a package-manager aria2 is fine.
-      # - name: Provision aria2c (Linux)
-      #   if: runner.os == 'Linux'
-      #   run: |
-      #     mkdir -p src-tauri/resources
-      #     cp "$(command -v aria2c)" src-tauri/resources/aria2c
-
-      # - name: Provision aria2c (macOS)
-      #   if: runner.os == 'macOS'
-      #   run: |
-      #     brew install aria2
-      #     mkdir -p src-tauri/resources
-      #     cp "$(command -v aria2c)" src-tauri/resources/aria2c
-
-      - name: Setup Node (for aria2c provisioning on Windows)
-        if: runner.os == 'Windows'
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Provision aria2c (Windows)
-        if: runner.os == 'Windows'
+      - name: Provision aria2c
         run: node scripts/ensure-aria2c.mjs
 
       - name: Setup Rust
@@ -138,34 +116,31 @@ jobs:
         include:
           - label: windows-x86_64
             os: windows-latest
-          # MVP: Windows-only. Uncomment below to restore cross-platform builds.
-          # - label: linux-x86_64
-          #   os: ubuntu-22.04
-          # - label: macos-x86_64
-          #   os: macos-13
-          # - label: macos-aarch64
-          #   os: macos-14
-    env:
-      FERRO_CI_USE_SYSTEM_ARIA2: "1"
+            target: x86_64-pc-windows-msvc
+          - label: windows-aarch64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+          - label: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - label: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+          - label: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - label: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # MVP: Linux/macOS steps commented out — Windows-only for now.
-      # - name: Install Linux Tauri dependencies
-      #   if: runner.os == 'Linux'
-      #   run: |
-      #     sudo apt-get update
-      #     sudo apt-get install -y \
-      #       libwebkit2gtk-4.1-dev \
-      #       libayatana-appindicator3-dev \
-      #       librsvg2-dev \
-      #       patchelf \
-      #       aria2
-
-      # - name: Install macOS aria2
-      #   if: runner.os == 'macOS'
-      #   run: brew install aria2
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       # pnpm version is read automatically from package.json "packageManager".
       - name: Setup pnpm
@@ -179,6 +154,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -189,4 +166,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop app
-        run: pnpm tauri build --no-bundle --debug
+        run: pnpm tauri build --no-bundle --debug --target ${{ matrix.target }}
