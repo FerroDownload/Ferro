@@ -3,7 +3,7 @@ use ferro_lib::services::engine_polling::{EnginePollingService, LiveTaskStatus};
 use ferro_lib::services::task_repository::TaskRepository;
 use ferro_lib::state::models::{Task, TaskStatus};
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir};
 
 fn sample_task(id: &str, gid: &str, status: TaskStatus) -> Task {
     Task {
@@ -30,7 +30,7 @@ fn sample_task(id: &str, gid: &str, status: TaskStatus) -> Task {
     }
 }
 
-async fn setup_service() -> (EnginePollingService, TaskRepository) {
+async fn setup_service() -> (TempDir, EnginePollingService, TaskRepository) {
     let dir = match tempdir() {
         Ok(dir) => dir,
         Err(error) => panic!("temp dir error: {error}"),
@@ -42,12 +42,12 @@ async fn setup_service() -> (EnginePollingService, TaskRepository) {
     };
     let service = EnginePollingService::new(TaskRepository::new(pool.clone()));
     let repo = TaskRepository::new(pool);
-    (service, repo)
+    (dir, service, repo)
 }
 
 #[tokio::test]
 async fn import_external_tasks_skips_known_gids() {
-    let (service, _repo) = setup_service().await;
+    let (_dir, service, _repo) = setup_service().await;
     let existing = sample_task("task-1", "gid-1", TaskStatus::Waiting);
     let _ = match service
         .import_external_tasks(std::slice::from_ref(&existing))
@@ -68,7 +68,7 @@ async fn import_external_tasks_skips_known_gids() {
 
 #[tokio::test]
 async fn reconcile_readds_only_pending_sqlite_tasks_absent_from_live_aria2() {
-    let (service, repo) = setup_service().await;
+    let (_dir, service, repo) = setup_service().await;
     let missing_active = sample_task("missing-active", "gid-missing", TaskStatus::Active);
     let restored_waiting = sample_task("restored-waiting", "gid-live", TaskStatus::Waiting);
     let completed_history = sample_task("completed-history", "gid-history", TaskStatus::Complete);
@@ -120,7 +120,7 @@ async fn reconcile_readds_only_pending_sqlite_tasks_absent_from_live_aria2() {
 
 #[tokio::test]
 async fn reconcile_imports_aria2_only_tasks_as_orphans() {
-    let (service, repo) = setup_service().await;
+    let (_dir, service, repo) = setup_service().await;
     repo.create(&sample_task("known", "gid-known", TaskStatus::Waiting))
         .await
         .expect("create known");
@@ -148,7 +148,7 @@ async fn reconcile_imports_aria2_only_tasks_as_orphans() {
 
 #[tokio::test]
 async fn apply_live_statuses_updates_progress_and_terminal_state() {
-    let (service, repo) = setup_service().await;
+    let (_dir, service, repo) = setup_service().await;
     let waiting = sample_task("task-active", "gid-active", TaskStatus::Waiting);
     let pending_complete = sample_task("task-complete", "gid-complete", TaskStatus::Active);
     repo.create(&waiting).await.expect("create waiting");

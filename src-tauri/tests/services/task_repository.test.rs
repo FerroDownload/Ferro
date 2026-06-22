@@ -1,7 +1,7 @@
 use ferro_lib::services::db;
 use ferro_lib::services::task_repository::TaskRepository;
 use ferro_lib::state::models::{Task, TaskStatus};
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir};
 
 fn sample_task(id: &str) -> Task {
     Task {
@@ -28,18 +28,18 @@ fn sample_task(id: &str) -> Task {
     }
 }
 
-async fn setup_repository() -> TaskRepository {
+async fn setup_repository() -> (TempDir, TaskRepository) {
     let dir = tempdir().expect("temp dir");
     let db_path = dir.path().join("ferro.db");
     let pool = db::connect_with_migrations(&db_path)
         .await
         .expect("connect db");
-    TaskRepository::new(pool)
+    (dir, TaskRepository::new(pool))
 }
 
 #[tokio::test]
 async fn create_and_get_task() {
-    let repo = setup_repository().await;
+    let (_dir, repo) = setup_repository().await;
     let task = sample_task("task-1");
 
     repo.create(&task).await.expect("create task");
@@ -50,7 +50,7 @@ async fn create_and_get_task() {
 
 #[tokio::test]
 async fn list_tasks_returns_rows() {
-    let repo = setup_repository().await;
+    let (_dir, repo) = setup_repository().await;
     repo.create(&sample_task("task-1"))
         .await
         .expect("create task-1");
@@ -64,7 +64,7 @@ async fn list_tasks_returns_rows() {
 
 #[tokio::test]
 async fn update_task_persists_changes() {
-    let repo = setup_repository().await;
+    let (_dir, repo) = setup_repository().await;
     let mut task = sample_task("task-1");
     repo.create(&task).await.expect("create task");
 
@@ -78,7 +78,7 @@ async fn update_task_persists_changes() {
 
 #[tokio::test]
 async fn delete_task_removes_row() {
-    let repo = setup_repository().await;
+    let (_dir, repo) = setup_repository().await;
     repo.create(&sample_task("task-1"))
         .await
         .expect("create task");

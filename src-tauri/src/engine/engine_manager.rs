@@ -133,7 +133,7 @@ impl EngineLauncher for Aria2Launcher {
         command
             .args(build_aria2_args(config, rpc_port).map_err(|error| error.user_message())?)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
         command.spawn().map_err(|error| error.to_string())
@@ -146,11 +146,14 @@ impl EngineLauncher for Aria2Launcher {
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move {
             let client = Aria2Client::new(&config.rpc_host, rpc_port, config.rpc_secret.clone());
-            client
-                .get_version()
-                .await
-                .map(|_| ())
-                .map_err(|error| error.to_string())
+            loop {
+                match client.get_version().await {
+                    Ok(_) => return Ok(()),
+                    Err(_) => {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                }
+            }
         })
     }
 }
@@ -314,10 +317,12 @@ impl<L: EngineLauncher> EngineManager<L> {
             Ok(port) => port,
             Err(error) => return Err(error),
         };
-        let child = match self.launcher.launch(&self.config, rpc_port) {
+        let mut child = match self.launcher.launch(&self.config, rpc_port) {
             Ok(child) => child,
             Err(error) => return Err(EngineManagerError::Spawn(error)),
         };
+
+        let mut stdout = child.stdout.take();
 
         {
             let mut guard = self.child.lock().await;
@@ -331,16 +336,41 @@ impl<L: EngineLauncher> EngineManager<L> {
         .await;
 
         match health_check {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => {
+                if let Some(stdout) = stdout {
+                    tokio::spawn(async move {
+                        let mut reader = tokio::io::BufReader::new(stdout);
+                        let mut line = String::new();
+                        use tokio::io::AsyncBufReadExt;
+                        while let Ok(n) = reader.read_line(&mut line).await {
+                            if n == 0 {
+                                break;
+                            }
+                            log::info!("aria2c: {}", line.trim());
+                            line.clear();
+                        }
+                    });
+                }
+            }
             Ok(Err(error)) => {
+                let stdout_content = get_stdout_content(&mut stdout).await;
                 self.kill_current_child().await;
-                return Err(EngineManagerError::Spawn(error));
+                let final_error = if stdout_content.is_empty() {
+                    error.to_string()
+                } else {
+                    format!("{error} (aria2c output: {stdout_content})")
+                };
+                return Err(EngineManagerError::Spawn(final_error));
             }
             Err(_) => {
+                let stdout_content = get_stdout_content(&mut stdout).await;
                 self.kill_current_child().await;
-                return Err(EngineManagerError::Spawn(
-                    "aria2.getVersion health check timed out".to_string(),
-                ));
+                let final_error = if stdout_content.is_empty() {
+                    "aria2.getVersion health check timed out".to_string()
+                } else {
+                    format!("aria2.getVersion health check timed out (aria2c output: {stdout_content})")
+                };
+                return Err(EngineManagerError::Spawn(final_error));
             }
         }
 
@@ -702,6 +732,20 @@ fn status_from_state(config: &EngineConfig, state: &RuntimeState) -> EngineStatu
         session_path: config.session_path.to_string_lossy().to_string(),
         session_save_interval_seconds: config.session_save_interval_seconds,
         file_allocation: config.file_allocation.clone(),
+    }
+}
+
+async fn get_stdout_content(stdout: &mut Option<tokio::process::ChildStdout>) -> String {
+    if let Some(mut stdout) = stdout.take() {
+        let mut buf = Vec::new();
+        use tokio::io::AsyncReadExt;
+        let _ = tokio::time::timeout(
+            Duration::from_millis(200),
+            stdout.read_to_end(&mut buf)
+        ).await;
+        String::from_utf8_lossy(&buf).trim().to_string()
+    } else {
+        "".to_string()
     }
 }
 
